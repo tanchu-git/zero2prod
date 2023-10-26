@@ -1,3 +1,3 @@
-docker run -e POSTGRES_PASSWORD=password -e POSTGRES_USER=postgres -e POSTGRES_DB=newsletter -p 5432 -d postgres -N 1000
+docker run -e POSTGRES_PASSWORD=password -e POSTGRES_USER=postgres -e POSTGRES_DB=newsletter -p 5432:5432 -d postgres -N 1000
 
---database-url postgres://postgres:password@localhost:53452/newsletter
+--database-url postgres://postgres:password@localhost:5432/newsletter

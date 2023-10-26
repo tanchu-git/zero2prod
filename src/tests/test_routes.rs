@@ -1,7 +1,9 @@
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use sqlx::{Connection, PgConnection};
     use std::net::TcpListener;
+    use zero2prod::config::get_config;
 
     /// Spin up an instance of our application
     /// and returns its address (i.e. http://localhost:XXXX)
@@ -32,9 +34,16 @@ mod tests {
         assert_eq!(Some(0), response.content_length());
     }
 
-    #[actix_web::test]
+    #[tokio::test]
     async fn test_subscriber_code_200() {
         let app_address = spawn_app();
+
+        let config = get_config().expect("Failed to read config file.");
+        let connection_string = config.get_db().connection_string();
+        let mut connection = PgConnection::connect(&connection_string)
+            .await
+            .expect("Failed to connect to Postgre.");
+
         let client = reqwest::Client::new();
 
         let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
@@ -47,6 +56,14 @@ mod tests {
             .expect("Failed to execute request");
 
         assert_eq!(200, response.status().as_u16());
+
+        let query = sqlx::query!("SELECT email, name FROM subscriptions")
+            .fetch_one(&mut connection)
+            .await
+            .expect("Failed to fetch saved subscription.");
+
+        assert_eq!(query.email, "ursula_le_guin@gmail.com");
+        assert_eq!(query.name, "le guin");
     }
 
     #[rstest]

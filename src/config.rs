@@ -1,16 +1,20 @@
-use config::{Config, File, FileFormat};
+use config::{Config, File};
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct Settings {
     database: DatabaseSettings,
-    application_port: u16,
+    app: AppSettings,
 }
 
 impl Settings {
-    pub fn get_port(&self) -> u16 {
-        self.application_port
+    pub fn get_app_port(&self) -> u16 {
+        self.app.port
+    }
+
+    pub fn get_app_host(&self) -> &str {
+        &self.app.host
     }
 
     pub fn get_db(&self) -> &DatabaseSettings {
@@ -57,10 +61,65 @@ impl DatabaseSettings {
         ))
     }
 }
-pub fn get_config() -> Result<Settings, config::ConfigError> {
-    let builder = Config::builder().add_source(File::new("config", FileFormat::Yaml));
 
-    match builder.build() {
+#[derive(Deserialize)]
+pub struct AppSettings {
+    port: u16,
+    host: String,
+}
+
+/// The possible runtime environment for our application.
+pub enum Environment {
+    Local,
+    Production,
+}
+
+impl Environment {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Environment::Local => "local",
+            Environment::Production => "production",
+        }
+    }
+}
+
+impl TryFrom<String> for Environment {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "local" => Ok(Self::Local),
+            "production" => Ok(Self::Production),
+            other => Err(format!(
+                "{} is not a supported environment. Use either `local` or `production`.",
+                other
+            )),
+        }
+    }
+}
+
+pub fn get_config() -> Result<Settings, config::ConfigError> {
+    let base_path = std::env::current_dir().expect("Failed to determine the current directory.");
+
+    let config_directory = base_path.join("config");
+
+    // Read the "default" configuration file
+    let builder =
+        Config::builder().add_source(File::from(config_directory.join("base")).required(true));
+
+    // Detect the running environment.
+    // Default to `local` if unspecified.
+    let environment: Environment = std::env::var("APP_ENVIRONMENT")
+        .unwrap_or_else(|_| "local".into())
+        .try_into()
+        .unwrap();
+
+    // Layer on the environment-specific values.
+    let final_builder = builder
+        .clone()
+        .add_source(File::from(config_directory.join(environment.as_str())).required(true));
+
+    match final_builder.build() {
         Ok(config) => config.try_deserialize(),
         Err(e) => Err(e),
     }

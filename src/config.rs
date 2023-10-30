@@ -1,6 +1,9 @@
 use config::{Config, File};
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
+use serde_aux::prelude::deserialize_number_from_string;
+use sqlx::postgres::{PgConnectOptions, PgSslMode};
+use sqlx::ConnectOptions;
 
 #[derive(Deserialize)]
 pub struct Settings {
@@ -34,48 +37,51 @@ impl Settings {
 pub struct DatabaseSettings {
     username: String,
     password: Secret<String>,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
     port: u16,
     host: String,
     db_name: String,
+    require_ssl: bool,
 }
 
 impl DatabaseSettings {
-    pub fn connection_string(&self) -> Secret<String> {
-        Secret::new(format!(
-            "postgres://{}:{}@{}:{}/{}",
-            self.username,
-            self.password.expose_secret(),
-            self.host,
-            self.port,
-            self.db_name
-        ))
+    pub fn without_db(&self) -> PgConnectOptions {
+        let ssl_mode = if self.require_ssl {
+            PgSslMode::Require
+        } else {
+            PgSslMode::Prefer
+        };
+
+        PgConnectOptions::new()
+            .host(&self.host)
+            .username(&self.username)
+            .password(self.password.expose_secret())
+            .port(self.port)
+            .ssl_mode(ssl_mode)
     }
 
-    pub fn connection_string_no_db(&self) -> Secret<String> {
-        Secret::new(format!(
-            "postgres://{}:{}@{}:{}",
-            self.username,
-            self.password.expose_secret(),
-            self.host,
-            self.port
-        ))
+    pub fn with_db(&self) -> PgConnectOptions {
+        let options = self.without_db().database(&self.db_name);
+
+        options.log_statements(tracing::log::LevelFilter::Trace)
     }
 }
 
 #[derive(Deserialize)]
 pub struct AppSettings {
+    #[serde(deserialize_with = "deserialize_number_from_string")]
     port: u16,
     host: String,
 }
 
-/// The possible runtime environment for our application.
+// The possible runtime environment for our application.
 pub enum Environment {
     Local,
     Production,
 }
 
 impl Environment {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             Environment::Local => "local",
             Environment::Production => "production",
@@ -83,6 +89,7 @@ impl Environment {
     }
 }
 
+// Convert from env string to enum Environment 'try_into()'
 impl TryFrom<String> for Environment {
     type Error = String;
 
@@ -103,23 +110,23 @@ pub fn get_config() -> Result<Settings, config::ConfigError> {
 
     let config_directory = base_path.join("config");
 
-    // Read the "default" configuration file
-    let builder =
-        Config::builder().add_source(File::from(config_directory.join("base")).required(true));
-
-    // Detect the running environment.
-    // Default to `local` if unspecified.
+    // Detect the running environment
+    // Default to `local` if unspecified
+    // Perform the conversion string -> Environment
     let environment: Environment = std::env::var("APP_ENVIRONMENT")
         .unwrap_or_else(|_| "local".into())
         .try_into()
-        .unwrap();
+        .expect("Failed to parse APP_ENVIRONMENT.");
 
-    // Layer on the environment-specific values.
-    let final_builder = builder
-        .clone()
-        .add_source(File::from(config_directory.join(environment.as_str())).required(true));
+    // Read the base config settings
+    // Layer on the environment-specific ('local' or 'production') values.
+    let builder = Config::builder()
+        .add_source(File::from(config_directory.join("base")).required(true))
+        .add_source(File::from(config_directory.join(environment.as_str())).required(true))
+        // Any env variables with a prefix of APP and '__' as seperator
+        .add_source(config::Environment::with_prefix("POSTGRES").separator("_"));
 
-    match final_builder.build() {
+    match builder.build() {
         Ok(config) => config.try_deserialize(),
         Err(e) => Err(e),
     }

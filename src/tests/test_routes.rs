@@ -2,7 +2,6 @@
 mod tests {
     use once_cell::sync::Lazy;
     use rstest::rstest;
-    use secrecy::ExposeSecret;
     use sqlx::{Connection, Executor, PgConnection, PgPool};
     use std::io::{sink, stdout};
     use std::net::TcpListener;
@@ -41,6 +40,7 @@ mod tests {
         // All other invocations will instead skip execution.
         Lazy::force(&TRACING);
 
+        // Port: 0 tell OS to randomize port
         let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port.");
 
         // We retrieve the port assigned to us by the OS
@@ -66,17 +66,16 @@ mod tests {
         config.set_db_name(Uuid::new_v4().to_string());
 
         // Create database with randomized name
-        let mut connection =
-            PgConnection::connect(config.get_db().connection_string_no_db().expose_secret())
-                .await
-                .expect("Failed to connect to Postgres");
+        let mut connection = PgConnection::connect_with(&config.get_db().without_db())
+            .await
+            .expect("Failed to connect to Postgres");
         connection
             .execute(format!(r#"CREATE DATABASE "{}";"#, config.get_db_name()).as_str())
             .await
             .expect("Failed to create database.");
 
         // Migrate database
-        let connection_pool = PgPool::connect(config.get_db().connection_string().expose_secret())
+        let connection_pool = PgPool::connect_with(config.get_db().with_db())
             .await
             .expect("Failed to connect to Postgres.");
         sqlx::migrate!("./migrations")

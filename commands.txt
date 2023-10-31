@@ -1,9 +1,0 @@
-docker run -e POSTGRES_PASSWORD=password -e POSTGRES_USER=postgres -e POSTGRES_DB=newsletter -p 5432:5432 -d postgres -N 1000
-
---database-url postgres://postgres:password@localhost:5432/newsletter
-
-$CurlArgument = '-i', '-X', 'POST', '-d', 'email=yonda@gmail.com&name=yonda',
-                'http://127.0.0.1:8080/subscriptions',
-                '--data', 'content=success'
-$CURLEXE = 'C:\Program Files\Git\mingw64\bin\curl.exe'
-& $CURLEXE @CurlArgument

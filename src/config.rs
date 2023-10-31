@@ -120,14 +120,16 @@ pub fn get_config() -> Result<Settings, config::ConfigError> {
 
     // Read the base config settings
     // Layer on the environment-specific ('local' or 'production') values.
-    let builder = Config::builder()
+    let settings = Config::builder()
         .add_source(File::from(config_directory.join("base")).required(true))
         .add_source(File::from(config_directory.join(environment.as_str())).required(true))
-        // Any env variables with a prefix of APP and '__' as seperator
-        .add_source(config::Environment::with_prefix("POSTGRES").separator("_"));
+        // Add any env variables with a prefix of APP and '__' as seperator
+        .add_source(
+            config::Environment::with_prefix("APP")
+                .prefix_separator("_")
+                .separator("__"),
+        )
+        .build()?;
 
-    match builder.build() {
-        Ok(config) => config.try_deserialize(),
-        Err(e) => Err(e),
-    }
+    settings.try_deserialize::<Settings>()
 }

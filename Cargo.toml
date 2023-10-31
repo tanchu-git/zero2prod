@@ -37,6 +37,7 @@ features = [
     "chrono",
     "migrate",
     "runtime-tokio",
+    "runtime-tokio-rustls"
 ]
 
 [dev-dependencies]

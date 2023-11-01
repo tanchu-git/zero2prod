@@ -127,11 +127,15 @@ mod tests {
     }
 
     #[rstest]
-    #[case("name=le%20guin", "missing the email")]
-    #[case("email=ursula_le_guin%40gmail.com", "missing the name")]
-    #[case("", "missing both name and email")]
+    #[case("name=&email=ursula_le_guin%40gmail.com", "empty name")]
+    #[case("name=Ursula&email=", "empty email")]
+    #[case("name=Ursula&email=definitely-not-an-email", "invalid email")]
+    #[trace]
     #[actix_web::test]
-    async fn test_subscriber_code_400(#[case] body: String, #[case] err_msg: &str) {
+    async fn test_subscriber_code_400_with_empty_field(
+        #[case] body: String,
+        #[case] test_case: &str,
+    ) {
         let app = spawn_app().await;
         let client = reqwest::Client::new();
 
@@ -146,7 +150,32 @@ mod tests {
         assert_eq!(
             400,
             response.status().as_u16(),
-            "API did NOT fail with 400 Bad Request when payload was {err_msg}."
+            "The API did not return a 400 OK when the test case was {test_case}."
+        );
+    }
+
+    #[rstest]
+    #[case("name=le%20guin", "missing the email")]
+    #[case("email=ursula_le_guin%40gmail.com", "missing the name")]
+    #[case("", "missing both name and email")]
+    #[trace]
+    #[actix_web::test]
+    async fn test_subscriber_code_400(#[case] body: String, #[case] test_case: &str) {
+        let app = spawn_app().await;
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post(&format!("{}/subscriptions", &app.address))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await
+            .expect("Failed to execute request");
+
+        assert_eq!(
+            400,
+            response.status().as_u16(),
+            "API did NOT fail with 400 Bad Request when test case was {test_case}."
         );
     }
 }

@@ -7,6 +7,7 @@ mod tests {
     use std::net::TcpListener;
     use uuid::Uuid;
     use zero2prod::config::get_config;
+    use zero2prod::email_client::EmailClient;
     use zero2prod::telemetry::*;
 
     static TRACING: Lazy<()> = Lazy::new(|| {
@@ -47,9 +48,23 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         let address = format!("http://127.0.0.1:{port}");
 
+        let config = get_config().expect("Failed to read configuration.");
+        //config.set_db_name(Uuid::new_v4().to_string());
+        // Build a new email client
+        let sender_email = config
+            .get_email_client()
+            .sender()
+            .expect("Invalid email address.");
+        let email_client = EmailClient::new(
+            config.get_email_client().get_base_url().to_string(),
+            sender_email,
+            config.get_email_client().get_secret(),
+            config.get_email_client().get_timeout(),
+        );
+
         // Get brand new database
         let connection_pool = create_db().await;
-        let server = zero2prod::startup::run(listener, connection_pool.clone())
+        let server = zero2prod::startup::run(listener, connection_pool.clone(), email_client)
             .expect("Failed to bind address");
         let _ = tokio::spawn(server);
 

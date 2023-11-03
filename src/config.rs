@@ -5,10 +5,13 @@ use serde_aux::prelude::deserialize_number_from_string;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use sqlx::ConnectOptions;
 
+use crate::domain::subscriber_email::SubscriberEmail;
+
 #[derive(Deserialize)]
 pub struct Settings {
     database: DatabaseSettings,
     app: AppSettings,
+    email_client: EmailClientSettings,
 }
 
 impl Settings {
@@ -30,6 +33,10 @@ impl Settings {
 
     pub fn get_db_name(&self) -> &str {
         &self.database.db_name
+    }
+
+    pub fn get_email_client(&self) -> &EmailClientSettings {
+        &self.email_client
     }
 }
 
@@ -72,6 +79,32 @@ pub struct AppSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     port: u16,
     host: String,
+}
+
+#[derive(Deserialize)]
+pub struct EmailClientSettings {
+    base_url: String,
+    sender_email: String,
+    secret: Secret<String>,
+    timeout_ms: u64,
+}
+
+impl EmailClientSettings {
+    pub fn sender(&self) -> Result<SubscriberEmail, String> {
+        SubscriberEmail::parse(self.sender_email.clone())
+    }
+
+    pub fn get_base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub fn get_secret(&self) -> Secret<String> {
+        self.secret.clone()
+    }
+
+    pub fn get_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.timeout_ms)
+    }
 }
 
 // The possible runtime environment for our application.

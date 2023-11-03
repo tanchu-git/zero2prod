@@ -6,3 +6,8 @@ database:
   db_name: "newsletter"
 app:
   port: 8080
+email_client:
+  base_url: "localhost"
+  sender_email: "test@gmail.com"
+  secret: "secret"
+  timeout_ms: 10000

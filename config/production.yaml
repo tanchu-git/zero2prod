@@ -2,3 +2,6 @@ app:
   host: 0.0.0.0
 database:
   require_ssl: true
+email_client:
+  base_url: https://us9.api.mailchimp.com/3.0/
+  sender_email: "tan.winh@gmail.com"

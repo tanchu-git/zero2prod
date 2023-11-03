@@ -19,6 +19,10 @@ impl Settings {
         self.app.port
     }
 
+    pub fn set_app_port(&mut self, port: u16) {
+        self.app.port = port;
+    }
+
     pub fn get_app_host(&self) -> &str {
         &self.app.host
     }

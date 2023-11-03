@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests {
     use once_cell::sync::Lazy;
+    use rand::Rng;
     use rstest::rstest;
     use sqlx::{Connection, Executor, PgConnection, PgPool};
     use std::io::{sink, stdout};
-    use std::net::TcpListener;
     use uuid::Uuid;
-    use zero2prod::config::get_config;
-    use zero2prod::email_client::EmailClient;
+    use zero2prod::config::{get_config, Settings};
+    use zero2prod::startup::get_connection_pool;
     use zero2prod::telemetry::*;
 
     static TRACING: Lazy<()> = Lazy::new(|| {
@@ -28,9 +28,21 @@ mod tests {
         }
     });
 
-    pub struct TestApp {
+    struct TestApp {
         address: String,
         db_pool: PgPool,
+    }
+
+    impl TestApp {
+        async fn make_post_request(&self, body: &str) -> reqwest::Response {
+            reqwest::Client::new()
+                .post(&format!("{}/subscriptions", &self.address))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body(body.to_string())
+                .send()
+                .await
+                .expect("Failed to execute request")
+        }
     }
 
     /// Spin up an instance of our application
@@ -41,46 +53,33 @@ mod tests {
         // All other invocations will instead skip execution.
         Lazy::force(&TRACING);
 
-        // Port: 0 tell OS to randomize port
-        let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port.");
+        // Randomise configuration to ensure test isolation
+        let random_port = rand::thread_rng().gen_range(8000..9000);
+        let config = {
+            let mut c = get_config().expect("Failed to read config.");
+            // Use a different database for each test case
+            c.set_db_name(Uuid::new_v4().to_string());
+            // Use a random OS port
+            c.set_app_port(random_port);
+            c
+        };
 
-        // We retrieve the port assigned to us by the OS
-        let port = listener.local_addr().unwrap().port();
-        let address = format!("http://127.0.0.1:{port}");
+        create_db(&config).await;
 
-        let config = get_config().expect("Failed to read configuration.");
-        //config.set_db_name(Uuid::new_v4().to_string());
-        // Build a new email client
-        let sender_email = config
-            .get_email_client()
-            .sender()
-            .expect("Invalid email address.");
-        let email_client = EmailClient::new(
-            config.get_email_client().get_base_url().to_string(),
-            sender_email,
-            config.get_email_client().get_secret(),
-            config.get_email_client().get_timeout(),
-        );
-
-        // Get brand new database
-        let connection_pool = create_db().await;
-        let server = zero2prod::startup::run(listener, connection_pool.clone(), email_client)
+        let server = zero2prod::startup::build(&config)
+            .await
             .expect("Failed to bind address");
+        let address = format!("http://127.0.0.1:{}", config.get_app_port());
         let _ = tokio::spawn(server);
 
         TestApp {
             address,
-            db_pool: connection_pool,
+            db_pool: get_connection_pool(&config),
         }
     }
 
     // Spin up a brand-new logical database for each integration test run
-    async fn create_db() -> PgPool {
-        // Randomize name for database
-        let mut config = get_config().expect("Failed to read config file.");
-        config.set_db_name(Uuid::new_v4().to_string());
-
-        // Create database with randomized name
+    async fn create_db(config: &Settings) {
         let mut connection = PgConnection::connect_with(&config.get_db().without_db())
             .await
             .expect("Failed to connect to Postgres");
@@ -97,8 +96,6 @@ mod tests {
             .run(&connection_pool)
             .await
             .expect("Failed to migrate the database");
-
-        connection_pool
     }
 
     #[actix_web::test]
@@ -119,16 +116,9 @@ mod tests {
     #[actix_web::test]
     async fn test_subscriber_code_200() {
         let app = spawn_app().await;
-        let client = reqwest::Client::new();
 
         let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
-        let response = client
-            .post(&format!("{}/subscriptions", &app.address))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(body)
-            .send()
-            .await
-            .expect("Failed to execute request");
+        let response = app.make_post_request(body).await;
 
         assert_eq!(200, response.status().as_u16());
 
@@ -148,19 +138,12 @@ mod tests {
     #[trace]
     #[actix_web::test]
     async fn test_subscriber_code_400_with_empty_field(
-        #[case] body: String,
+        #[case] body: &str,
         #[case] test_case: &str,
     ) {
         let app = spawn_app().await;
-        let client = reqwest::Client::new();
 
-        let response = client
-            .post(&format!("{}/subscriptions", &app.address))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(body)
-            .send()
-            .await
-            .expect("Failed to execute request");
+        let response = app.make_post_request(body).await;
 
         assert_eq!(
             400,
@@ -175,17 +158,10 @@ mod tests {
     #[case("", "missing both name and email")]
     #[trace]
     #[actix_web::test]
-    async fn test_subscriber_code_400(#[case] body: String, #[case] test_case: &str) {
+    async fn test_subscriber_code_400(#[case] body: &str, #[case] test_case: &str) {
         let app = spawn_app().await;
-        let client = reqwest::Client::new();
 
-        let response = client
-            .post(&format!("{}/subscriptions", &app.address))
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .body(body)
-            .send()
-            .await
-            .expect("Failed to execute request");
+        let response = app.make_post_request(body).await;
 
         assert_eq!(
             400,

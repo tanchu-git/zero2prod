@@ -42,6 +42,10 @@ impl Settings {
     pub fn get_email_client(&self) -> &EmailClientSettings {
         &self.email_client
     }
+
+    pub fn set_email_client(&mut self, url: String) {
+        self.email_client.base_url = url;
+    }
 }
 
 #[derive(Deserialize)]

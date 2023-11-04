@@ -6,6 +6,8 @@ mod tests {
     use sqlx::{Connection, Executor, PgConnection, PgPool};
     use std::io::{sink, stdout};
     use uuid::Uuid;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
     use zero2prod::config::{get_config, Settings};
     use zero2prod::startup::get_connection_pool;
     use zero2prod::telemetry::*;
@@ -31,6 +33,7 @@ mod tests {
     struct TestApp {
         address: String,
         db_pool: PgPool,
+        email_server: MockServer,
     }
 
     impl TestApp {
@@ -53,6 +56,8 @@ mod tests {
         // All other invocations will instead skip execution.
         Lazy::force(&TRACING);
 
+        let email_server = MockServer::start().await;
+
         // Randomise configuration to ensure test isolation
         let random_port = rand::thread_rng().gen_range(8000..9000);
         let config = {
@@ -61,6 +66,7 @@ mod tests {
             c.set_db_name(Uuid::new_v4().to_string());
             // Use a random OS port
             c.set_app_port(random_port);
+            c.set_email_client(email_server.uri());
             c
         };
 
@@ -75,6 +81,7 @@ mod tests {
         TestApp {
             address,
             db_pool: get_connection_pool(&config),
+            email_server,
         }
     }
 
@@ -114,21 +121,56 @@ mod tests {
     }
 
     #[actix_web::test]
+    async fn test_subscribe_sends_confirmation_email_for_valid_data() {
+        let app = spawn_app().await;
+        let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
+
+        Mock::given(path("/campaigns/9b4079798b/actions/test"))
+            .and(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(1)
+            .mount(&app.email_server)
+            .await;
+
+        app.make_post_request(body).await;
+    }
+
+    #[actix_web::test]
     async fn test_subscriber_code_200() {
         let app = spawn_app().await;
-
         let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
+
+        Mock::given(path("/campaigns/9b4079798b/actions/test"))
+            .and(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&app.email_server)
+            .await;
+
         let response = app.make_post_request(body).await;
-
         assert_eq!(200, response.status().as_u16());
+    }
 
-        let query = sqlx::query!("SELECT email, name FROM subscriptions")
+    #[actix_web::test]
+    async fn test_subscribe_does_persist_subscriber() {
+        let app = spawn_app().await;
+        let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
+
+        Mock::given(path("/campaigns/9b4079798b/actions/test"))
+            .and(method("POST"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&app.email_server)
+            .await;
+
+        app.make_post_request(body).await;
+
+        let query = sqlx::query!("SELECT email, name, status FROM subscriptions")
             .fetch_one(&app.db_pool)
             .await
             .expect("Failed to fetch saved subscription.");
 
         assert_eq!(query.email, "ursula_le_guin@gmail.com");
         assert_eq!(query.name, "le guin");
+        assert_eq!(query.status, "pending_confirmation");
     }
 
     #[rstest]
@@ -168,5 +210,15 @@ mod tests {
             response.status().as_u16(),
             "API did NOT fail with 400 Bad Request when test case was {test_case}."
         );
+    }
+
+    #[actix_web::test]
+    async fn confirmations_without_token_are_rejeceted_with_400() {
+        let app = spawn_app().await;
+        let response = reqwest::get(&format!("{}/subscriptions/confirm", &app.address))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status().as_u16(), 400);
     }
 }

@@ -4,9 +4,12 @@ use serde::Deserialize;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::domain::{
-    new_subscriber::NewSubscriber, subscriber_email::SubscriberEmail,
-    subscriber_name::SubscriberName,
+use crate::{
+    domain::{
+        new_subscriber::NewSubscriber, subscriber_email::SubscriberEmail,
+        subscriber_name::SubscriberName,
+    },
+    email_client::EmailClient,
 };
 
 #[derive(Deserialize)]
@@ -35,16 +38,29 @@ impl TryFrom<FormData> for NewSubscriber {
     )
 )]
 #[post("/subscriptions")]
-async fn subscribe(form: web::Form<FormData>, pool: web::Data<PgPool>) -> HttpResponse {
+async fn subscribe(
+    form: web::Form<FormData>,
+    pool: web::Data<PgPool>,
+    email_client: web::Data<EmailClient>,
+) -> HttpResponse {
     let new_subscriber = match form.0.try_into() {
         Ok(form) => form,
         Err(_) => return HttpResponse::BadRequest().finish(),
     };
 
-    match insert_subscriber(&new_subscriber, &pool).await {
-        Ok(_) => HttpResponse::Ok().finish(),
-        Err(_) => HttpResponse::InternalServerError().finish(),
+    if insert_subscriber(&new_subscriber, &pool).await.is_err() {
+        return HttpResponse::InternalServerError().finish();
     }
+    // Send a (useless) email to the new subscriber.
+    // We are ignoring email delivery errors for now.
+    if email_client
+        .send_email(new_subscriber.get_sub_email())
+        .await
+        .is_err()
+    {
+        return HttpResponse::InternalServerError().finish();
+    }
+    HttpResponse::Ok().finish()
 }
 
 #[tracing::instrument(
@@ -58,7 +74,7 @@ async fn insert_subscriber(
     sqlx::query!(
         r#"
     INSERT INTO subscriptions (id, email, name, subscribed_at, status)
-    VALUES ($1, $2, $3, $4, 'confirmed')
+    VALUES ($1, $2, $3, $4, 'pending_confirmation')
             "#,
         Uuid::new_v4(),
         new_subscriber.get_email(),

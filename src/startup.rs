@@ -6,7 +6,9 @@ use tracing_actix_web::TracingLogger;
 use crate::{
     config::Settings,
     email_client::EmailClient,
-    services::{health_check::health_check, subscriptions::subscribe},
+    services::{
+        health_check::health_check, subscriptions::subscribe, subscriptions_confirm::confirm,
+    },
 };
 
 pub async fn build(config: &Settings) -> Result<Server, std::io::Error> {
@@ -49,6 +51,7 @@ pub fn run(
             .wrap(TracingLogger::default())
             .service(health_check)
             .service(subscribe)
+            .service(confirm)
             .app_data(db_pool.clone())
             .app_data(email_client.clone())
     })

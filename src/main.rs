@@ -3,8 +3,6 @@ use zero2prod::config::get_config;
 use zero2prod::startup::build;
 use zero2prod::telemetry::{get_subscriber, init_subscriber};
 
-mod tests;
-
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let subscriber = get_subscriber("zero2prod", "info", stdout);

@@ -46,6 +46,10 @@ impl Settings {
     pub fn set_email_client(&mut self, url: String) {
         self.email_client.base_url = url;
     }
+
+    pub fn get_app_base_url(&self) -> &str {
+        &self.app.base_url
+    }
 }
 
 #[derive(Deserialize)]
@@ -87,6 +91,7 @@ pub struct AppSettings {
     #[serde(deserialize_with = "deserialize_number_from_string")]
     port: u16,
     host: String,
+    base_url: String,
 }
 
 #[derive(Deserialize)]

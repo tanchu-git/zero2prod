@@ -29,7 +29,12 @@ pub async fn build(config: &Settings) -> Result<Server, std::io::Error> {
     let address = format!("{}:{}", config.get_app_host(), config.get_app_port());
     let listener = TcpListener::bind(address)?;
 
-    run(listener, connection_pool, email_client)
+    run(
+        listener,
+        connection_pool,
+        email_client,
+        config.get_app_base_url(),
+    )
 }
 
 pub fn get_connection_pool(config: &Settings) -> PgPool {
@@ -38,13 +43,21 @@ pub fn get_connection_pool(config: &Settings) -> PgPool {
         .connect_lazy_with(config.get_db().with_db())
 }
 
+// We need to define a wrapper type in order to retrieve the URL
+// in the `subscribe` handler.
+// Retrieval from the context, in actix-web, is type-based: using
+// a raw `String` would expose us to conflicts.
+pub struct ApplicationBaseUrl(String);
+
 pub fn run(
     listener: TcpListener,
     db_pool: PgPool,
     email_client: EmailClient,
+    base_url: &str,
 ) -> Result<Server, std::io::Error> {
     let db_pool = web::Data::new(db_pool);
     let email_client = web::Data::new(email_client);
+    let base_url = web::Data::new(base_url.to_string());
 
     let server = HttpServer::new(move || {
         App::new()
@@ -54,6 +67,7 @@ pub fn run(
             .service(confirm)
             .app_data(db_pool.clone())
             .app_data(email_client.clone())
+            .app_data(base_url.clone())
     })
     .listen(listener)?
     .run();

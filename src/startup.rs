@@ -7,7 +7,8 @@ use crate::{
     config::Settings,
     email_client::EmailClient,
     services::{
-        health_check::health_check, subscriptions::subscribe, subscriptions_confirm::confirm,
+        health_check::health_check, newsletters::publish_newsletter, subscriptions::subscribe,
+        subscriptions_confirm::confirm,
     },
 };
 
@@ -65,6 +66,7 @@ pub fn run(
             .service(health_check)
             .service(subscribe)
             .service(confirm)
+            .service(publish_newsletter)
             .app_data(db_pool.clone())
             .app_data(email_client.clone())
             .app_data(base_url.clone())

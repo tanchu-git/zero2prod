@@ -140,7 +140,8 @@ async fn subscribe(
     // Send a (useless) email to the new subscriber.
     email_client
         .send_email(new_subscriber.get_sub_email())
-        .await?;
+        .await
+        .map_err(SubscribeError::SendEmailError)?;
 
     transaction
         .commit()

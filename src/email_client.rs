@@ -41,6 +41,9 @@ impl EmailClient {
             .await?
             .error_for_status()?;
 
+        dbg!(builder);
+        dbg!(&self.sender);
+
         Ok(())
     }
 }
